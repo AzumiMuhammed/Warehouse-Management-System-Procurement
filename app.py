@@ -15,11 +15,10 @@ from sqlalchemy.exc import IntegrityError
 
 # ---------------------------
 # CONFIG / DB CONNECTION
-
+# ---------------------------
 st.set_page_config(page_title="WMS + Procurement", layout="wide")
 
-# Page title
-
+# ✅ Main page title (top of main page)
 st.title("Warehouse Management + Procurement System")
 st.caption("WMS • Procurement • Inventory • Deliveries • Analytics")
 st.divider()
@@ -53,15 +52,25 @@ metadata = MetaData()
 
 # JSON column compatibility:
 # - MySQL supports JSON type
-# - SQLite doesn't (we store JSON as Text)
+# - SQLite doesn't (store JSON as Text)
 if USING_MYSQL:
     from sqlalchemy.dialects.mysql import JSON as JSON_COL
 else:
     JSON_COL = Text
 
 # ---------------------------
-# TABLES
+# DEMO LOGIN (free access)
+# Only auto-created in SQLite (demo mode).
+
 # ---------------------------
+DEMO_EMAIL = "just_for@demo.com"
+DEMO_PASSWORD = "demo1111!"
+DEMO_NAME = "Just for Demo"
+DEMO_ROLE = "Demo" 
+
+# ---------------------------
+# TABLES
+
 users = Table("users", metadata,
     Column("id", Integer, primary_key=True),
     Column("name", String(120), nullable=False),
@@ -237,9 +246,6 @@ audit_logs = Table("audit_logs", metadata,
     Column("created_at", DateTime, default=datetime.utcnow),
 )
 
-# ---------------------------
-# WAREHOUSING & LOGISTICS TABLES
-# ---------------------------
 warehouses = Table("warehouses", metadata,
     Column("id", Integer, primary_key=True),
     Column("name", String(120), nullable=False),
@@ -320,8 +326,8 @@ delivery_assignments = Table("delivery_assignments", metadata,
 )
 
 # ---------------------------
-# Initialize DB schema safely
-# ---------------------------
+# DB schema safely Initialised
+
 def init_db():
     try:
         metadata.create_all(engine)
@@ -349,7 +355,6 @@ def now_ts_id(prefix: str) -> str:
     return datetime.now().strftime(f"{prefix}%Y%m%d%H%M%S")
 
 def log(actor, action, entity_type, entity_id, details=None):
-    # store details as JSON string if not MySQL JSON
     payload = details or {}
     if not USING_MYSQL:
         payload = json.dumps(payload, ensure_ascii=False)
@@ -358,6 +363,23 @@ def log(actor, action, entity_type, entity_id, details=None):
             actor=actor, action=action, entity_type=entity_type,
             entity_id=entity_id, details=payload
         ))
+
+# ✅ Create demo user automatically in SQLite demo mode (only if no users exist)
+def ensure_demo_user_exists():
+    if USING_MYSQL:
+        return
+    with engine.begin() as conn:
+        count_users = conn.execute(select(func.count()).select_from(users)).scalar() or 0
+        if count_users == 0:
+            conn.execute(users.insert().values(
+                name=DEMO_NAME,
+                email=DEMO_EMAIL,
+                password_hash=sha256(DEMO_PASSWORD),
+                role=DEMO_ROLE,
+                dept="Demo",
+            ))
+
+ensure_demo_user_exists()
 
 # Email (optional) - from environment only (safe for Cloud)
 SMTP_HOST = os.getenv("SMTP_HOST", "")
@@ -384,7 +406,7 @@ def send_email(to_email: str, subject: str, body: str):
 
 def require_role(roles: list[str]) -> bool:
     u = st.session_state.get("user")
-    return bool(u and (u["role"] in roles or u["role"] == "admin"))
+    return bool(u and (u["role"] in roles or u["role"] == "Demo"))
 
 # Inventory utilities
 def get_or_create_inv(conn, warehouse_id: int, item_id: int, bin_id: int|None = None):
@@ -448,6 +470,18 @@ with st.sidebar:
             st.session_state.user = None
             st.rerun()
     else:
+        # ✅ Recruiter demo login: still requires login action in sidebar (button)
+        if not USING_MYSQL:
+            st.caption("Demo access (for recruiters)")
+            if st.button("Login as Demo User"):
+                with engine.begin() as conn:
+                    u = conn.execute(select(users).where(users.c.email == DEMO_EMAIL)).mappings().first()
+                if u:
+                    st.session_state.user = {"id": u["id"], "name": u["name"], "role": u["role"], "email": u["email"]}
+                    st.rerun()
+            st.caption(f"Demo credentials: {DEMO_EMAIL} / {DEMO_PASSWORD}")
+            st.divider()
+
         with st.expander("Sign in", expanded=True):
             email = st.text_input("Email")
             pwd = st.text_input("Password", type="password")
@@ -460,19 +494,7 @@ with st.sidebar:
                 else:
                     st.error("Invalid credentials")
 
-        with st.expander("Create first admin (if none)"):
-            name_a = st.text_input("Name", key="n_admin")
-            email_a = st.text_input("Admin Email", key="e_admin")
-            pwd_a = st.text_input("Admin Password", type="password", key="p_admin")
-            if st.button("Create admin"):
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(users.insert().values(
-                            name=name_a, email=email_a, password_hash=sha256(pwd_a), role="admin"
-                        ))
-                    st.success("Admin user created. Please sign in.")
-                except IntegrityError:
-                    st.error("Email already exists")
+# ✅ Removed: "Create first admin (if none)"
 
 if not st.session_state.user:
     st.info("Please sign in to continue.")
@@ -1043,7 +1065,6 @@ def page_reports():
             ORDER BY r.id DESC LIMIT 300
         """
     else:
-        # SQLite uses julianday for date math
         lead_sql = """
             SELECT r.req_no, po.po_no, gr.grn_no,
                    CAST((julianday(gr.received_at) - julianday(date(r.created_at))) AS INTEGER) AS days
@@ -1157,8 +1178,7 @@ elif choice.startswith("Admin"):
 
 st.caption("""
 ✔️ Uses SQLite automatically when DB_HOST is not configured (Streamlit Cloud demo mode).
+✔️ Demo user is available via sidebar login (recruiters can assess the app).
 ✔️ Auto-updates inventory on GRN; deducts on shipments.
 ✔️ Includes inventory valuation report.
-Next steps: barcode/QR scanning, wave picking, route optimization, mobile-friendly pages, and approval links via email tokens.
 """)
-
