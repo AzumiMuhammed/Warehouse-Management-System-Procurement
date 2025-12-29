@@ -65,7 +65,7 @@ else:
 # ---------------------------
 DEMO_EMAIL = "just_for@demo.com"
 DEMO_PASSWORD = "demo1111!"
-DEMO_NAME = "Just for Demo"
+DEMO_NAME = "Admin just for Demo purposes"
 DEMO_ROLE = "admin" 
 
 
@@ -367,13 +367,12 @@ def log(actor, action, entity_type, entity_id, details=None):
 
 # ✅ demo user in SQLite demo mode (only if no users exist)
 def ensure_demo_user_exists():
-    if USING_MYSQL:
-        return
     with engine.begin() as conn:
-        demo = conn.execute(
+        u = conn.execute(
             select(users).where(users.c.email == DEMO_EMAIL)
         ).mappings().first()
-        if not demo:
+
+        if not u:
             conn.execute(users.insert().values(
                 name=DEMO_NAME,
                 email=DEMO_EMAIL,
@@ -411,6 +410,7 @@ def send_email(to_email: str, subject: str, body: str):
 def require_role(roles: list[str]) -> bool:
     u = st.session_state.get("user")
     return bool(u and (u["role"] in roles or u["role"] == "admin"))
+
 
 
 # Inventory utilities
@@ -462,11 +462,11 @@ def transfer_stock(conn, wh_from: int, wh_to: int, item_id: int, qty: float, rea
 
 # ---------------------------
 # AUTH / SESSION
+
 # ---------------------------
+# AUTH / SESSION (ONE-CLICK DEMO LOGIN ONLY)
 if "user" not in st.session_state:
     st.session_state.user = None
-
-# one click assess.
 
 with st.sidebar:
     st.subheader("Account")
@@ -476,47 +476,29 @@ with st.sidebar:
         if st.button("Sign out"):
             st.session_state.user = None
             st.rerun()
-
     else:
-        # ✅ One-click recruiter access (SQLite demo mode)
-        if not USING_MYSQL:
-            st.caption("Recruiter access")
-            if st.button("Demo login", use_container_width=True):
-                with engine.begin() as conn:
-                    u = conn.execute(
-                        select(users).where(users.c.email == DEMO_EMAIL)
-                    ).mappings().first()
-                if u:
-                    st.session_state.user = {
-                        "id": u["id"],
-                        "name": u["name"],
-                        "role": u["role"],
-                        "email": u["email"],
-                    }
-                    st.rerun()
-            st.divider()
+        # one-click access (no email/password fields)
+        st.caption("Free access")
+        if st.button("Demo login"):
+            with engine.begin() as conn:
+                u = conn.execute(select(users).where(users.c.email == DEMO_EMAIL)).mappings().first()
 
-        with st.expander("Sign in", expanded=True):
-            email = st.text_input("Email")
-            pwd = st.text_input("Password", type="password")
-            if st.button("Login"):
-                with engine.begin() as conn:
-                    u = conn.execute(select(users).where(users.c.email == email)).mappings().first()
-                if u and u["password_hash"] == sha256(pwd):
-                    st.session_state.user = {
-                        "id": u["id"],
-                        "name": u["name"],
-                        "role": u["role"],
-                        "email": u["email"],
-                    }
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
-
+            if not u:
+                st.error("Demo user not found. Check ensure_demo_user_exists().")
+            else:
+                st.session_state.user = {"id": u["id"], "name": u["name"], "role": u["role"], "email": u["email"]}
+                st.rerun()
 
 if not st.session_state.user:
-    st.info("Please sign in to continue.")
+    st.info("Click Demo login to continue.")
     st.stop()
+
+# Block the app until logged in
+if not st.session_state.user:
+    st.info("Click **Demo login** in the sidebar to access the app.")
+    st.stop()
+
+
 
 # ---------------------------
 # SIDEBAR NAV (role-aware)
