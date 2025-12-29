@@ -1,6 +1,21 @@
+# Virtual environment
 .venv/
+venv/
+
+# Python cache
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+
+# Streamlit secrets (CRITICAL)
 .streamlit/secrets.toml
+
+# Uploaded documents
 uploads/
+
+# OS / editor files
+.DS_Store
+.vscode/
+
+# Logs
+*.log
